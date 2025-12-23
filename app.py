@@ -49,24 +49,29 @@ def make_code(univ_name, name):
     rand_num = random.randint(100, 999)
     return f"{univ_hash}대{rand_num}"
 
-# --- 3. 문제 데이터 로드 (problems.json 파일 연동) ---
-@st.cache_data # 데이터 로딩 속도 최적화
+# --- 3. 문제 데이터 로드 ---
+@st.cache_data  # 데이터를 매번 다시 읽지 않도록 캐싱
 def load_problems():
     try:
-        # problems.json 파일이 있는지 확인
-        if not os.path.exists('problems.json'):
-            st.error("⚠️ 'problems.json' 파일을 찾을 수 없습니다.")
-            return []
-            
         with open('problems.json', 'r', encoding='utf-8') as f:
             data = json.load(f)
-            # SET_A, SET_B, SET_C를 리스트로 묶어서 반환
-            return [data['SET_A'], data['SET_B'], data['SET_C']]
-    except Exception as e:
-        st.error(f"⚠️ 문제 파일 로드 중 오류 발생: {e}")
+        # JSON 구조를 리스트의 리스트 형태로 변환 [SET_A, SET_B, SET_C]
+        return [data['SET_A'], data['SET_B'], data['SET_C']]
+    except FileNotFoundError:
+        st.error("❌ 'problems.json' 파일을 찾을 수 없습니다. 파일이 업로드되었는지 확인해주세요.")
+        return []
+    except json.JSONDecodeError as e:
+        st.error(f"❌ 문제 파일(problems.json)에 문법 오류가 있습니다: {e}")
         return []
 
+# 문제 데이터 로드 실행
 PROBLEM_SETS = load_problems()
+
+# 데이터 로드 실패 시 중단 방지용 더미 데이터 (앱이 꺼지는 것 방지)
+if not PROBLEM_SETS:
+    PROBLEM_SETS = [[], [], []]
+
+# 쓰기 문제 (공통 혹은 세트별)
 
 # --- 4. 앱 UI 및 로직 ---
 def main():
@@ -269,5 +274,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
