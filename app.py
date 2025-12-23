@@ -42,27 +42,27 @@ def make_code(univ_name, name):
     rand_num = random.randint(100, 999)
     return f"{univ_hash}대{rand_num}"
 
-# --- 3. 문제 데이터 (예시: 실제로는 40문제 x 3세트 필요) ---
-# 선생님, 여기에 실제 문제를 채워넣으셔야 합니다.
-# 형식: type(유형), question(지문/질문), options(보기), answer(정답인덱스 0~3), score(배점)
-PROBLEM_SETS = [
-    # [SET A]
-    [
-        {"id": "A_G1", "type": "문법", "question": "다음 빈칸에 알맞은 것을 고르십시오.\n가: 비가 올 것 같아요.\n나: 우산을 _________.", "options": ["가져가야 해요", "가져가도 돼요", "가져가면 안 돼요", "가져가지 않아요"], "answer": 0, "score": 2},
-        {"id": "A_R1", "type": "읽기(중)", "question": "다음 안내문의 내용과 같은 것을 고르십시오. (안내문 내용 생략)", "options": ["무료로 이용합니다.", "주말에는 쉽니다.", "오전에만 엽니다.", "예약이 필요합니다."], "answer": 1, "score": 2},
-        # ... (이런 식으로 문법 10, 읽기 29개 채움)
-    ],
-    # [SET B]
-    [
-        {"id": "B_G1", "type": "문법", "question": "동생은 키가 ________ 농구를 잘해요.", "options": ["크지만", "크니까", "큰데", "커서"], "answer": 3, "score": 2},
-        # ...
-    ],
-    # [SET C]
-    [
-        {"id": "C_G1", "type": "문법", "question": "시간이 없어서 택시를 _________.", "options": ["탔어요", "타세요", "탑니다", "탈게요"], "answer": 0, "score": 2},
-        # ...
-    ]
-]
+# --- 3. 문제 데이터 로드 ---
+import json
+
+# 로컬 테스트용 혹은 배포용 파일 읽기
+try:
+    with open('problems.json', 'r', encoding='utf-8') as f:
+        data = json.load(f)
+        # JSON 키 이름(SET_A 등)이 정확해야 합니다.
+        PROBLEM_SETS = [data['SET_A'], data['SET_B'], data['SET_C']]
+except FileNotFoundError:
+    st.error("오류: 'problems.json' 파일을 찾을 수 없습니다. 같은 폴더에 파일이 있는지 확인해주세요.")
+    st.stop()
+except json.JSONDecodeError:
+    st.error("오류: 'problems.json' 파일의 형식이 잘못되었습니다. 콤마(,)나 괄호를 확인해주세요.")
+    st.stop()
+
+# 쓰기 문제 (세트별로 다른 쓰기 문제가 JSON에 포함되어 있으므로, 
+# 여기서는 공통 정의를 삭제하거나, JSON 내의 40번 문제를 활용하도록 로직을 수정해야 합니다.)
+# -> 위 코드 로직상 40번 문제가 쓰기 문제로 포함되어 들어오므로
+# -> 아래 WRITING_QUESTION 변수는 삭제해도 되지만, 
+# -> 기존 코드 호환성을 위해 화면 표시용 함수에서 '마지막 문제(40번)'를 쓰기 문제로 인식하게 처리하겠습니다.
 
 # 쓰기 문제 (공통 혹은 세트별)
 WRITING_QUESTION = {
@@ -116,23 +116,27 @@ def main():
         st.subheader(f"수험번호: {st.session_state.user_info['code']}")
         st.markdown("---")
         
-        # 1. 객관식 문제 (읽기/문법)
-        with st.form("test_form"):
-            questions = st.session_state.shuffled_questions
-            
-            # 문제 출력
-            for idx, q in enumerate(questions):
-                st.write(f"**{idx+1}. [{q['type']}]** {q['question']}")
-                choice = st.radio(f"{idx+1}번 답안 선택", q['options'], key=f"q_{idx}", index=None)
-                st.session_state.answers[q['id']] = choice
-                st.markdown("---")
-            
-            # 2. 쓰기 문제
-            st.write(f"**[쓰기]** {WRITING_QUESTION['question']}")
-            st.info(f"참고 자료: {WRITING_QUESTION['image_desc']}") # 여기에 실제 이미지는 st.image('파일명.png')
-            writing_answer = st.text_area("답안을 작성하세요 (200~300자)", height=200)
-            
-            submit_test = st.form_submit_button("제출 및 채점하기")
+       # 1. 객관식 문제 (1~39번)
+            with st.form("test_form"):
+                questions = st.session_state.shuffled_questions
+                
+                # 마지막 문제(쓰기)를 제외하고 반복
+                obj_questions = [q for q in questions if q['type'] != '쓰기' and '쓰기' not in q['type']]
+                writing_question = [q for q in questions if q['type'] == '쓰기' or '쓰기' in q['type']][0]
+                
+                # 객관식 출력
+                for idx, q in enumerate(obj_questions):
+                    st.write(f"**{idx+1}. [{q['type']}]** {q['question']}")
+                    choice = st.radio(f"{idx+1}번 답안 선택", q['options'], key=f"q_{q['id']}", index=None)
+                    st.session_state.answers[q['id']] = choice
+                    st.markdown("---")
+                
+                # 2. 쓰기 문제 (JSON에서 가져온 내용으로 표시)
+                st.write(f"**[쓰기]** {writing_question['question']}")
+                # 만약 JSON에 image_desc 같은 필드가 없다면 question에 포함되어 있다고 가정
+                writing_answer = st.text_area("답안을 작성하세요 (200~300자)", height=200)
+                
+                submit_test = st.form_submit_button("제출 및 채점하기")
             
             if submit_test:
                 if not writing_answer:
@@ -238,4 +242,5 @@ def main():
                     st.write("데이터가 없습니다.")
 
 if __name__ == "__main__":
+
     main()
