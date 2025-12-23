@@ -91,7 +91,7 @@ def main():
         
         with st.form("login_form"):
             name = st.text_input("이름")
-            univ = st.text_input("소속 대학교 (한글로 입력, 예: 단국대학교)")
+            univ = st.text_input("소속 대학교 (한글로 입력, 예: 한국대학교)")
             email = st.text_input("이메일 (Gmail 권장)")
             submitted = st.form_submit_button("시험 시작하기")
             
@@ -269,4 +269,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
