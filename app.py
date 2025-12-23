@@ -21,13 +21,26 @@ except Exception as e:
 # (2) Firebase 설정
 if not firebase_admin._apps:
     try:
-        key_dict = json.loads(st.secrets["FIREBASE_KEY"])
+        # st.secrets에서 가져온 정보는 이미 딕셔너리 형태이므로 json.loads가 필요 없습니다.
+        # 안전하게 일반 딕셔너리로 변환하여 사용합니다.
+        key_dict = dict(st.secrets["FIREBASE_KEY"])
+        
+        # 키 딕셔너리에 private_key가 있는지 확인 (줄바꿈 문자 처리)
+        if "private_key" in key_dict:
+            key_dict["private_key"] = key_dict["private_key"].replace("\\n", "\n")
+
         cred = credentials.Certificate(key_dict)
         firebase_admin.initialize_app(cred)
     except Exception as e:
-        st.error(f"데이터베이스 연결 오류: {e}")
+        st.error(f"🔥 데이터베이스 연결 오류: {e}")
+        st.stop() # 오류 나면 여기서 멈춤 (더 진행 안 함)
 
-db = firestore.client()
+# 앱이 정상적으로 초기화되었을 때만 클라이언트 생성
+try:
+    db = firestore.client()
+except Exception as e:
+    st.error("🔥 Firebase 클라이언트를 생성할 수 없습니다. 설정을 확인해주세요.")
+    st.stop()
 
 # --- 2. 데이터 암호화 및 유틸리티 함수 ---
 def make_code(univ_name, name):
@@ -256,3 +269,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
