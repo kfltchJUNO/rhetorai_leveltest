@@ -20,6 +20,7 @@ import json
 import os
 import streamlit as st
 
+# CSS를 사용하여 UI 요소 숨기기
 hide_streamlit_style = """
 <style>
     /* 1. 우측 하단 'Manage app' 버튼 숨기기 */
@@ -299,6 +300,7 @@ else:
 
 if __name__ == "__main__":
     main()
+
 
 
 
