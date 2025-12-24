@@ -174,19 +174,25 @@ def main():
         with st.form("test_form"):
             # 1. 객관식 문제 출력
             for idx, q in enumerate(obj_questions):
+                # 문제 유형과 질문 출력
                 st.markdown(f"**{idx+1}. [{q.get('type', '일반')}]** {q['question']}", unsafe_allow_html=True)
                 
+                # [수정됨] 지문(passage) 출력: st.info 대신 st.markdown 사용
                 if 'passage' in q and q['passage']:
-                    st.info(q['passage'])
+                    # 회색 박스 안에 지문을 넣고 HTML 태그(<u>)가 먹히도록 설정
+                    st.markdown(f"""
+                    <div style="background-color: #f0f2f6; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
+                        {q['passage']}
+                    </div>
+                    """, unsafe_allow_html=True)
 
+                # 이미지 출력
                 if 'image' in q and q['image']:
                     if os.path.exists(q['image']):
-                        st.image(q['image'], caption=f"문제 {idx+1}번 자료")
-                    else:
-                        pass # 이미지가 없으면 조용히 넘어감
+                        st.image(q['image'])
                 
+                # 보기 출력
                 options = q.get('options', [])
-                # index=None은 Streamlit 최신 버전 기능입니다. 구버전일 경우 오류가 나면 0으로 바꾸세요.
                 choice = st.radio(f"{idx+1}번 답안 선택", options, key=f"q_{q['id']}", index=None)
                 st.session_state.answers[q['id']] = choice
                 st.markdown("---")
@@ -195,18 +201,25 @@ def main():
             if writing_question:
                 st.markdown(f"**[쓰기]** {writing_question['question']}", unsafe_allow_html=True)
                 
+                # [수정됨] 쓰기 지문도 동일하게 처리
                 if 'passage' in writing_question and writing_question['passage']:
-                     st.info(writing_question['passage'])
+                    st.markdown(f"""
+                    <div style="background-color: #f0f2f6; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
+                        {writing_question['passage']}
+                    </div>
+                    """, unsafe_allow_html=True)
 
                 if 'image' in writing_question and writing_question['image']:
                     if os.path.exists(writing_question['image']):
-                        st.image(writing_question['image'], caption="쓰기 문제 자료")
+                        st.image(writing_question['image'])
                 
                 writing_answer = st.text_area("답안을 작성하세요 (200~300자)", height=200)
                 st.session_state.answers['writing'] = writing_answer
             else:
+                st.warning("쓰기 문제가 로드되지 않았습니다.")
                 st.session_state.answers['writing'] = ""
             
+            # 제출 버튼
             submitted = st.form_submit_button("제출 및 채점하기")
             
             if submitted:
@@ -390,3 +403,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
