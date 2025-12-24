@@ -1,3 +1,13 @@
+st.markdown("""
+<style>
+u {
+    text-decoration: none;
+    border-bottom: 2px solid red;  /* 빨간색 밑줄 (원하는 색으로 변경 가능) */
+    padding-bottom: 2px;
+    font-weight: bold;
+}
+</style>
+""", unsafe_allow_html=True)
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -8,6 +18,30 @@ import time
 import hashlib
 import json
 import os
+import streamlit as st
+
+hide_streamlit_style = """
+<style>
+    /* 1. 우측 하단 'Manage app' 버튼 숨기기 */
+    .stAppDeployButton {
+        display: none;
+    }
+
+    /* 2. 하단 'Made with Streamlit' 푸터 숨기기 */
+    footer {
+        visibility: hidden;
+    }
+
+    /* 3. (선택사항) 우측 상단 햄버거 메뉴(...) 숨기기 */
+    /* 필요 없으면 이 부분은 지우세요 */
+    #MainMenu {
+        visibility: hidden;
+    }
+</style>
+"""
+
+# HTML/CSS 적용
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # --- 1. 설정 및 초기화 ---
 st.set_page_config(page_title="한국어 간이 레벨 테스트", layout="wide")
@@ -130,36 +164,27 @@ def main():
         writing_question = writing_question_list[0] if writing_question_list else None
 
         with st.form("test_form"):
-            # 1. 객관식 문제 출력
-            for idx, q in enumerate(obj_questions):
-                st.write(f"**{idx+1}. [{q.get('type', '일반')}]** {q['question']}")
-                # options가 리스트인지 확인
-                options = q.get('options', [])
-                choice = st.radio(f"{idx+1}번 답안 선택", options, key=f"q_{q['id']}", index=None)
-                st.session_state.answers[q['id']] = choice
-                st.markdown("---")
-            
-            # 2. 쓰기 문제 출력
-            if writing_question:
-                st.write(f"**[쓰기]** {writing_question['question']}")
-                # 이미지가 있다면 여기에 st.image 추가 가능
-                writing_answer = st.text_area("답안을 작성하세요 (200~300자)", height=200)
-            else:
-                st.warning("쓰기 문제가 로드되지 않았습니다.")
-                writing_answer = ""
+# 1. 객관식 문제 출력
+for idx, q in enumerate(obj_questions):
+    # ▼▼▼ [수정된 부분] st.write -> st.markdown으로 변경 ▼▼▼
+    st.markdown(f"**{idx+1}. [{q.get('type', '일반')}]** {q['question']}", unsafe_allow_html=True)
+    
+    # options가 리스트인지 확인
+    options = q.get('options', [])
+    choice = st.radio(f"{idx+1}번 답안 선택", options, key=f"q_{q['id']}", index=None)
+    st.session_state.answers[q['id']] = choice
+    st.markdown("---")
 
-            submit_test = st.form_submit_button("제출 및 채점하기")
-            
-            if submit_test:
-                if writing_question and not writing_answer:
-                    st.warning("쓰기 답안을 작성해주세요.")
-                else:
-                    if writing_question:
-                        st.session_state.answers['writing'] = writing_answer
-                    st.session_state.end_time = time.time()
-                    st.session_state.page = 'scoring'
-                    st.rerun()
-
+# 2. 쓰기 문제 출력
+if writing_question:
+    # ▼▼▼ [수정된 부분] st.write -> st.markdown으로 변경 ▼▼▼
+    st.markdown(f"**[쓰기]** {writing_question['question']}", unsafe_allow_html=True)
+    
+    # 이미지가 있다면 여기에 st.image 추가 가능
+    writing_answer = st.text_area("답안을 작성하세요 (200~300자)", height=200)
+else:
+    st.warning("쓰기 문제가 로드되지 않았습니다.")
+    writing_answer = ""
     # --- 페이지 3: 채점 및 결과 ---
     elif st.session_state.page == 'scoring':
         with st.spinner("AI가 채점 중입니다... 잠시만 기다려주세요."):
@@ -274,6 +299,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
