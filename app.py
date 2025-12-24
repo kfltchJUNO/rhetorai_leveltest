@@ -284,7 +284,7 @@ def main():
 
             if user_writing:
                 try:
-                    model = genai.GenerativeModel('gemini-pro')
+                    model = genai.GenerativeModel('gemini-flash-latest')
                     prompt = f"""
                     당신은 한국어 능력 시험(TOPIK) 전문 채점관입니다. 
                     아래 학생의 쓰기 답안을 3~4급 수준을 기준으로 평가하고, 반드시 아래의 JSON 포맷으로만 출력하세요. (마크다운 없이 JSON만 출력)
@@ -406,3 +406,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
