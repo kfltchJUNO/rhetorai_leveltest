@@ -128,41 +128,60 @@ def main():
     if 'start_time' not in st.session_state: st.session_state.start_time = None
     if 'end_time' not in st.session_state: st.session_state.end_time = None
     
-    # 문제 랜덤 출제 (100점 만점 고정 로직)
+    # [수정됨] 문제 랜덤 출제 (그래프 문제 필수 포함 + 100점 만점)
     if 'shuffled_questions' not in st.session_state and ALL_QUESTIONS_POOL:
+        # 1. 풀 분류
         grammar_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '문법']
         vocab_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '어휘']
-        reading_2pt_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '읽기' and q['score'] == 2]
+        
+        # 읽기: 2점(일반/그래프 분리) / 3점
+        reading_graph_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '읽기' and '그래프' in q['question']]
+        reading_2pt_normal_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '읽기' and q['score'] == 2 and '그래프' not in q['question']]
         reading_3pt_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '읽기' and q['score'] == 3]
+        
         writing_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '쓰기']
         
         try:
+            # 2. 문제 선택
+            # 문법 5개 (10점)
             sel_grammar = random.sample(grammar_pool, 5)
+            # 어휘 5개 (10점)
             sel_vocab = random.sample(vocab_pool, 5)
-            sel_reading_2 = random.sample(reading_2pt_pool, 20)
+            
+            # 읽기 2점 20개 (40점) -> 그래프 1개 필수 포함
+            if reading_graph_pool:
+                sel_reading_graph = random.sample(reading_graph_pool, 1)
+                sel_reading_normal = random.sample(reading_2pt_normal_pool, 19)
+                sel_reading_2 = sel_reading_graph + sel_reading_normal
+            else:
+                # 만약 그래프 문제가 없다면 일반으로 채움 (예외처리)
+                sel_reading_2 = random.sample(reading_2pt_normal_pool, 20)
+                
+            # 읽기 3점 9개 (27점)
             sel_reading_3 = random.sample(reading_3pt_pool, 9)
+            
+            # 쓰기 1개 (13점)
             sel_writing = random.sample(writing_pool, 1)
             
+            # 3. 읽기 문제 섞기 (그래프 문제가 항상 같은 위치에 나오지 않도록)
             sel_reading = sel_reading_2 + sel_reading_3
             random.shuffle(sel_reading)
             
+            # 최종 문제 세트 구성
             st.session_state.shuffled_questions = sel_grammar + sel_vocab + sel_reading + sel_writing
             
         except ValueError:
-            st.error("문제 데이터 부족 (데이터 풀 확인 필요)")
+            st.error("문제 데이터가 부족하여 세트를 구성할 수 없습니다. (데이터 풀 확인 필요)")
             st.session_state.shuffled_questions = []
 
-    # --- 페이지 1: 로그인 (대폭 수정됨) ---
+    # --- 페이지 1: 로그인 ---
     if st.session_state.page == 'login':
         st.info("이 테스트는 연구 목적으로 진행됩니다. 개인정보는 암호화되어 관리됩니다.")
         
-        # [주의] st.form을 제거하여 상호작용(Selectbox 선택 등)이 즉시 반영되도록 함
         st.subheader("📝 수험자 정보 입력")
         
-        # 1. 이름 입력
         name = st.text_input("이름", placeholder="본명을 입력해주세요")
         
-        # 2. 대학교 선택 (검색 가능)
         univ_selection = st.selectbox(
             "소속 대학교", 
             KOREAN_UNIVERSITIES, 
@@ -174,7 +193,6 @@ def main():
         if univ_selection == "기타(직접입력)":
             final_univ_name = st.text_input("대학교명 직접 입력")
 
-        # 3. 이메일 입력 (ID + 도메인 분리)
         st.markdown("**이메일**")
         col_email_1, col_email_2, col_email_3 = st.columns([2, 0.2, 2])
         
@@ -191,16 +209,13 @@ def main():
                 label_visibility="collapsed"
             )
         
-        # 도메인 직접 입력 처리
         final_domain = email_domain_select
         if email_domain_select == "직접입력":
             final_domain = st.text_input("도메인 직접 입력 (예: school.ac.kr)", placeholder="school.ac.kr")
 
         st.markdown("---")
         
-        # 제출 버튼 및 유효성 검사
         if st.button("다음 단계로", type="primary"):
-            # 검증 로직
             if not name:
                 st.warning("이름을 입력해주세요.")
             elif not final_univ_name:
@@ -212,7 +227,6 @@ def main():
             elif "@" in email_id:
                 st.warning("이메일 ID 칸에는 @ 기호를 넣지 마세요.")
             else:
-                # 모든 정보가 유효할 때만 진행
                 full_email = f"{email_id}@{final_domain}"
                 
                 st.session_state.user_info = {
