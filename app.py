@@ -43,35 +43,25 @@ st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # (1) Gemini 설정
 try:
-    if "GEMINI_API_KEY" in st.secrets:
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    else:
-        st.warning("GEMINI_API_KEY가 설정되지 않았습니다.")
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 except Exception as e:
     st.error(f"Gemini API 설정 오류: {e}")
 
 # (2) Firebase 설정
 if not firebase_admin._apps:
     try:
-        if "FIREBASE_KEY" in st.secrets:
-            key_dict = dict(st.secrets["FIREBASE_KEY"])
-            if "private_key" in key_dict:
-                key_dict["private_key"] = key_dict["private_key"].replace("\\n", "\n")
+        key_dict = dict(st.secrets["FIREBASE_KEY"])
+        if "private_key" in key_dict:
+            key_dict["private_key"] = key_dict["private_key"].replace("\\n", "\n")
 
-            cred = credentials.Certificate(key_dict)
-            firebase_admin.initialize_app(cred)
-        else:
-            st.warning("FIREBASE_KEY가 설정되지 않았습니다.")
+        cred = credentials.Certificate(key_dict)
+        firebase_admin.initialize_app(cred)
     except Exception as e:
         st.error(f"🔥 데이터베이스 연결 오류: {e}")
-        # DB 연결 실패 시에도 앱이 꺼지지 않도록 stop() 제거 고려 가능 (현재는 유지)
         st.stop()
 
 try:
-    if firebase_admin._apps:
-        db = firestore.client()
-    else:
-        db = None
+    db = firestore.client()
 except Exception as e:
     st.error("🔥 Firebase 클라이언트를 생성할 수 없습니다. 설정을 확인해주세요.")
     st.stop()
@@ -83,36 +73,28 @@ def make_code(univ_name, name):
     rand_num = random.randint(100, 999)
     return f"{univ_hash}대{rand_num}"
 
-# --- 3. 문제 데이터 로드 ---
+# --- 3. 문제 데이터 로드 (문제은행 방식) ---
 @st.cache_data
-def load_problems():
+def load_all_problems():
     try:
         with open('problems.json', 'r', encoding='utf-8') as f:
             data = json.load(f)
         
-        # 키가 존재하는지 확인하며 로드 (안전장치 추가)
-        sets = []
+        # [수정됨] 모든 세트의 문제를 하나의 리스트로 통합 (문제 풀 구성)
+        all_problems = []
         for key in ['SET_A', 'SET_B', 'SET_C', 'SET_D', 'SET_E']:
             if key in data:
-                sets.append(data[key])
-        
-        if not sets:
-            st.error("❌ 문제 파일에 유효한 SET 데이터가 없습니다.")
-            return []
-            
-        return sets
-        
+                all_problems.extend(data[key])
+                
+        return all_problems
     except FileNotFoundError:
         st.error("❌ 'problems.json' 파일을 찾을 수 없습니다.")
         return []
     except json.JSONDecodeError as e:
-        st.error(f"❌ 문제 파일 문법 오류 (JSON 형식을 확인하세요): {e}")
-        return []
-    except Exception as e:
-        st.error(f"❌ 알 수 없는 오류 발생: {e}")
+        st.error(f"❌ 문제 파일 문법 오류: {e}")
         return []
 
-PROBLEM_SETS = load_problems()
+ALL_QUESTIONS_POOL = load_all_problems()
 
 # --- 4. 메인 앱 로직 ---
 def main():
@@ -124,16 +106,31 @@ def main():
     if 'start_time' not in st.session_state: st.session_state.start_time = None
     if 'end_time' not in st.session_state: st.session_state.end_time = None
     
-    # 문제 세트 선택 및 셔플 (최초 1회만) - PROBLEM_SETS가 비어있지 않을 때만 실행
-    if PROBLEM_SETS:
-        if 'selected_set_idx' not in st.session_state:
-            st.session_state.selected_set_idx = random.randint(0, len(PROBLEM_SETS)-1)
+    # [핵심 수정] 문제 랜덤 출제 로직 (최초 1회 실행)
+    if 'shuffled_questions' not in st.session_state and ALL_QUESTIONS_POOL:
+        # 1. 유형별로 문제 분류
+        grammar_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '문법']
+        vocab_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '어휘']
+        reading_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '읽기']
+        writing_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '쓰기']
+        
+        # 2. TOPIK 비율에 맞춰 랜덤 샘플링 (총 40문제)
+        # 예: 문법 5개, 어휘 5개, 읽기 29개, 쓰기 1개
+        try:
+            selected_grammar = random.sample(grammar_pool, 5)
+            selected_vocab = random.sample(vocab_pool, 5)
+            selected_reading = random.sample(reading_pool, 29)
+            selected_writing = random.sample(writing_pool, 1)
             
-        if 'shuffled_questions' not in st.session_state: 
-            raw_questions = PROBLEM_SETS[st.session_state.selected_set_idx]
-            st.session_state.shuffled_questions = raw_questions
-    else:
-        st.warning("문제 데이터를 불러오는 중 오류가 발생했거나 데이터가 없습니다.")
+            # 3. 문제 합치기 (순서: 문법 -> 어휘 -> 읽기 -> 쓰기)
+            # 순서를 섞지 않고 유형별로 배치하여 시험 흐름 유지
+            test_set = selected_grammar + selected_vocab + selected_reading + selected_writing
+            
+            st.session_state.shuffled_questions = test_set
+            
+        except ValueError as e:
+            st.error(f"문제 데이터가 부족하여 세트를 구성할 수 없습니다. (데이터 확인 필요): {e}")
+            st.session_state.shuffled_questions = []
 
     # --- 페이지 1: 로그인 ---
     if st.session_state.page == 'login':
@@ -146,8 +143,8 @@ def main():
             submitted = st.form_submit_button("시험 시작하기")
             
             if submitted:
-                if not PROBLEM_SETS:
-                    st.error("문제 데이터 오류로 시험을 시작할 수 없습니다.")
+                if not ALL_QUESTIONS_POOL:
+                    st.error("문제 데이터를 불러오지 못했습니다.")
                 elif name and univ and email:
                     st.session_state.user_info = {
                         "name": name,
@@ -176,7 +173,7 @@ def main():
             for idx, q in enumerate(obj_questions):
                 st.markdown(f"**{idx+1}. [{q.get('type', '일반')}]** {q['question']}", unsafe_allow_html=True)
                 
-                # [수정됨] .replace('\n', '<br>')을 추가하여 엔터 효과 적용
+                # 지문 출력 (엔터 처리 및 스타일 적용)
                 if 'passage' in q and q['passage']:
                     st.markdown(f"""
                     <div style="background-color: #333333; color: #ffffff; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
@@ -184,6 +181,7 @@ def main():
                     </div>
                     """, unsafe_allow_html=True)
 
+                # 이미지 출력
                 if 'image' in q and q['image']:
                     if os.path.exists(q['image']):
                         st.image(q['image'])
@@ -197,7 +195,6 @@ def main():
             if writing_question:
                 st.markdown(f"**[쓰기]** {writing_question['question']}", unsafe_allow_html=True)
                 
-                # [수정됨] 쓰기 지문도 동일하게 줄바꿈 처리 적용
                 if 'passage' in writing_question and writing_question['passage']:
                     st.markdown(f"""
                     <div style="background-color: #333333; color: #ffffff; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
@@ -228,9 +225,9 @@ def main():
         st.title("채점 결과")
         with st.spinner("AI가 채점 및 분석 중입니다... (약 10~20초 소요)"):
             
-            questions = PROBLEM_SETS[st.session_state.selected_set_idx]
+            # [수정됨] 셔플된 문제 리스트를 기준으로 채점
+            questions = st.session_state.shuffled_questions
             
-            # 점수 집계용 변수 초기화
             scores = {
                 "문법": 0,
                 "어휘": 0,
@@ -238,20 +235,17 @@ def main():
                 "쓰기": 0
             }
             
-            score_obj = 0  # 객관식 총점
-            max_score = 0  # [추가됨] 전체 만점 자동 계산용 변수
-            details = {}   # 문제별 상세 결과
+            score_obj = 0
+            max_score = 0
+            details = {}
             
             writing_q_text = "그래프 해석" 
 
-            # [1] 전체 만점 계산 및 객관식 채점
+            # [1] 객관식 채점
             for q in questions:
-                # 전체 만점 누적 계산 (문법+어휘+읽기+쓰기 모두 포함)
-                max_score += q['score']
-                
+                max_score += q['score'] # 만점 자동 계산
                 q_type = q.get('type')
                 
-                # 쓰기 문제는 채점 건너뛰고 텍스트만 저장
                 if q_type == '쓰기':
                     writing_q_text = q['question']
                     continue
@@ -259,18 +253,14 @@ def main():
                 user_choice = st.session_state.answers.get(q['id'])
                 is_correct = False
                 
-                # 정답 확인 로직
                 if user_choice and 'options' in q:
                     try:
                         if user_choice in q['options']:
                             choice_idx = q['options'].index(user_choice)
                             if choice_idx == q['answer']:
-                                # 정답인 경우
                                 point = q['score']
                                 score_obj += point
                                 is_correct = True
-                                
-                                # 유형별 점수 합산
                                 if q_type in scores:
                                     scores[q_type] += point
                     except:
@@ -297,7 +287,7 @@ def main():
                     model = genai.GenerativeModel('gemini-pro')
                     prompt = f"""
                     당신은 한국어 능력 시험(TOPIK) 전문 채점관입니다. 
-                    아래 학생의 쓰기 답안을 3~4급 수준을 기준으로 평가하고, 반드시 아래의 JSON 포맷으로만 출력하세요. (마크다운이나 설명 없이 JSON만 출력)
+                    아래 학생의 쓰기 답안을 3~4급 수준을 기준으로 평가하고, 반드시 아래의 JSON 포맷으로만 출력하세요. (마크다운 없이 JSON만 출력)
 
                     [문제]
                     {writing_q_text}
@@ -305,25 +295,24 @@ def main():
                     [학생 답안]
                     {user_writing}
 
-                    [평가 기준 (총 8점)]
-                    1. 내용(3점): 문제에서 요구한 내용을 모두 포함했는가?
-                    2. 구성(3점): 글의 흐름이 논리적인가?
-                    3. 언어(2점): 어휘와 문법이 정확하고 고급스러운가?
+                    [평가 기준 (총 13점)]
+                    1. 내용(5점): 문제에서 요구한 내용을 모두 포함했는가?
+                    2. 구성(4점): 글의 흐름이 논리적인가?
+                    3. 언어(4점): 어휘와 문법이 정확하고 고급스러운가?
 
                     [출력 포맷 (JSON)]
                     {{
-                        "score": <총점 숫자 0~8>,
+                        "score": <총점 숫자 0~13>,
                         "breakdown": {{
-                            "content": <내용 점수 0~3>,
-                            "structure": <구성 점수 0~3>,
-                            "grammar": <언어 점수 0~2>
+                            "content": <내용 점수 0~5>,
+                            "structure": <구성 점수 0~4>,
+                            "grammar": <언어 점수 0~4>
                         }},
                         "feedback": "<학생을 위한 구체적인 피드백 한 문단>",
                         "correction": "<어색한 문장을 자연스럽게 고친 교정본 전체>"
                     }}
                     """
                     response = model.generate_content(prompt)
-                    
                     response_text = response.text.strip()
                     if response_text.startswith("```json"):
                         response_text = response_text.replace("```json", "").replace("```", "")
@@ -333,7 +322,7 @@ def main():
                     
                 except Exception as e:
                     print(f"쓰기 채점 오류: {e}")
-                    writing_analysis["feedback"] = f"채점 중 오류가 발생했습니다: {e}"
+                    writing_analysis["feedback"] = f"채점 중 오류 발생: {e}"
 
             total_score = score_obj + scores["쓰기"]
             
@@ -345,7 +334,7 @@ def main():
                 "univ_enc": st.session_state.user_info['code'],
                 "email": st.session_state.user_info['email'],
                 "total_score": total_score,
-                "max_score": max_score, # 만점 정보도 저장
+                "max_score": max_score,
                 "score_grammar": scores["문법"],
                 "score_vocab": scores["어휘"],
                 "score_reading": scores["읽기"],
@@ -359,23 +348,17 @@ def main():
             
             db.collection("korean_test_results").add(doc_data)
             
-            # --- 결과 화면 출력 ---
+            # --- 결과 화면 ---
             st.success("🎉 채점이 완료되었습니다!")
             
-            # 1. 종합 점수 (동적 만점 반영 및 1.0 초과 방지)
             col1, col2 = st.columns(2)
-            
-            # 만점이 0인 경우(오류 방지) 처리
             safe_max_score = max_score if max_score > 0 else 100
             progress_value = total_score / safe_max_score
-            
-            # 진행률바 값이 1.0을 넘지 않도록 안전장치
             if progress_value > 1.0: progress_value = 1.0
             
             col1.metric("총점", f"{total_score}점 / {safe_max_score}점")
             col1.progress(progress_value)
             
-            # 2. 영역별 점수
             st.subheader("📊 영역별 점수")
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("문법", f"{scores['문법']}점")
@@ -383,12 +366,11 @@ def main():
             c3.metric("읽기", f"{scores['읽기']}점")
             c4.metric("쓰기", f"{scores['쓰기']}점")
             
-            # 3. 쓰기 상세 피드백
             st.markdown("---")
             st.subheader("📝 쓰기 AI 분석 결과")
             if user_writing:
                 wa = writing_analysis
-                st.write(f"**[세부 점수]** 내용: {wa['breakdown']['content']}/3, 구성: {wa['breakdown']['structure']}/3, 언어: {wa['breakdown']['grammar']}/2")
+                st.write(f"**[세부 점수]** 내용: {wa['breakdown']['content']}/5, 구성: {wa['breakdown']['structure']}/4, 언어: {wa['breakdown']['grammar']}/4")
                 st.info(f"**💡 피드백:**\n{wa['feedback']}")
                 
                 with st.expander("원문 및 교정본 비교 보기"):
@@ -405,29 +387,22 @@ def main():
     st.sidebar.markdown("---")
     with st.sidebar.expander("관리자 메뉴"):
         admin_pwd = st.text_input("관리자 암호", type="password")
-        if "ADMIN_PASSWORD" in st.secrets and admin_pwd == st.secrets["ADMIN_PASSWORD"]:
-            if db:
-                if st.button("데이터 다운로드 (CSV)"):
-                    docs = db.collection("korean_test_results").stream()
-                    data = []
-                    for doc in docs:
-                        d = doc.to_dict()
-                        if 'timestamp' in d and d['timestamp']:
-                            d['timestamp'] = d['timestamp'].isoformat()
-                        data.append(d)
-                    
-                    if data:
-                        df = pd.DataFrame(data)
-                        csv = df.to_csv(index=False).encode('utf-8-sig')
-                        st.download_button("CSV 다운로드", csv, "results.csv", "text/csv")
-                    else:
-                        st.write("데이터가 없습니다.")
-            else:
-                st.error("DB 연결이 되지 않아 데이터를 불러올 수 없습니다.")
+        if admin_pwd == st.secrets["ADMIN_PASSWORD"]:
+            if st.button("데이터 다운로드 (CSV)"):
+                docs = db.collection("korean_test_results").stream()
+                data = []
+                for doc in docs:
+                    d = doc.to_dict()
+                    if 'timestamp' in d and d['timestamp']:
+                        d['timestamp'] = d['timestamp'].isoformat()
+                    data.append(d)
+                
+                if data:
+                    df = pd.DataFrame(data)
+                    csv = df.to_csv(index=False).encode('utf-8-sig')
+                    st.download_button("CSV 다운로드", csv, "results.csv", "text/csv")
+                else:
+                    st.write("데이터가 없습니다.")
 
 if __name__ == "__main__":
     main()
-
-
-
-
