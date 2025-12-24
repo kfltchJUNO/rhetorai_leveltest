@@ -11,7 +11,7 @@ import os
 import math
 
 # --- [설정] 시험 제한 시간 (50분) ---
-TEST_DURATION_SEC = 40 * 60 
+TEST_DURATION_SEC = 50 * 60 
 
 # --- [데이터] 한국 대학교 리스트 ---
 KOREAN_UNIVERSITIES = sorted([
@@ -133,13 +133,12 @@ def get_system_status():
         doc_ref = db.collection('config').document('settings')
         doc = doc_ref.get()
         if doc.exists:
-            return doc.to_dict().get('is_active', True) # 기본값 True
+            return doc.to_dict().get('is_active', True)
         else:
-            # 설정 문서가 없으면 생성하고 True로 설정
             doc_ref.set({'is_active': True})
             return True
     except Exception as e:
-        st.error(f"설정 로드 오류: {e}")
+        # 오류 시 기본값 True (접속 허용)
         return True
 
 def update_system_status(status):
@@ -184,7 +183,6 @@ def main():
         current_status = get_system_status()
         new_status = st.sidebar.toggle("시험 응시 허용", value=current_status)
         
-        # 상태가 변경되면 DB 업데이트
         if new_status != current_status:
             update_system_status(new_status)
             st.rerun()
@@ -197,7 +195,6 @@ def main():
             st.session_state.is_admin = False
             st.rerun()
 
-        # 데이터 다운로드 기능 (관리자 전용)
         with st.sidebar.expander("데이터 다운로드"):
             if st.button("결과 CSV 다운로드"):
                 docs = db.collection("korean_test_results").stream()
@@ -217,13 +214,12 @@ def main():
     # --- [시스템 상태 확인] ---
     is_system_active = get_system_status()
     
-    # 시험이 닫혀있고 관리자가 아닌 경우 -> 차단
+    # 차단 로직
     if not is_system_active and not st.session_state.is_admin:
         st.error("⛔ 현재 시험 응시가 불가능합니다.")
         st.info("관리자가 시험 기능을 비활성화했습니다. 시험 시간이 아니거나 시스템 점검 중일 수 있습니다.")
-        st.stop() # 이후 코드 실행 중단
+        st.stop()
 
-    # 시험이 닫혀있지만 관리자인 경우 -> 테스트 모드 알림
     if not is_system_active and st.session_state.is_admin:
         st.warning("🔧 현재 [관리자 테스트 모드]입니다. 일반 사용자는 접속할 수 없습니다.")
 
@@ -231,9 +227,11 @@ def main():
     if 'shuffled_questions' not in st.session_state and ALL_QUESTIONS_POOL:
         grammar_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '문법']
         vocab_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '어휘']
+        
         reading_graph_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '읽기' and '그래프' in q['question']]
         reading_2pt_normal_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '읽기' and q['score'] == 2 and '그래프' not in q['question']]
         reading_3pt_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '읽기' and q['score'] == 3]
+        
         writing_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '쓰기']
         
         try:
@@ -326,9 +324,10 @@ def main():
     # --- 페이지 1.5: 시험 시작 전 경고 ---
     elif st.session_state.page == 'warning':
         st.warning("⚠️ 주의사항을 확인해주세요")
+        # [수정] 제한 시간 50분 표시
         st.markdown(f"""
         ### ⏳ 제한 시간 안내
-        * 본 시험의 제한 시간은 **{TEST_DURATION_SEC // 40}분**입니다.
+        * 본 시험의 제한 시간은 **{TEST_DURATION_SEC // 60}분**입니다.
         * 좌측 하단에 남은 시간이 표시됩니다.
         * **시간이 종료되면 작성 중인 답안이 자동으로 제출**됩니다.
         * **번역기 사용 금지:** 화면을 긁거나 복사할 수 없으며, 번역기 사용 시 불이익을 받을 수 있습니다.
@@ -352,6 +351,7 @@ def main():
             st.session_state.page = 'scoring'
             st.rerun()
         
+        # 타이머
         st.components.v1.html(
             f"""
             <div id="timer-display" class="fixed-timer" style="
