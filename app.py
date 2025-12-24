@@ -228,16 +228,30 @@ def main():
         st.title("채점 결과")
         with st.spinner("AI가 채점 및 분석 중입니다... (약 10~20초 소요)"):
             
-            # [1] 객관식 채점
             questions = PROBLEM_SETS[st.session_state.selected_set_idx]
             
-            scores = {"문법": 0, "어휘": 0, "읽기": 0, "쓰기": 0}
-            score_obj = 0
-            details = {}
+            # 점수 집계용 변수 초기화
+            scores = {
+                "문법": 0,
+                "어휘": 0,
+                "읽기": 0,
+                "쓰기": 0
+            }
+            
+            score_obj = 0  # 객관식 총점
+            max_score = 0  # [추가됨] 전체 만점 자동 계산용 변수
+            details = {}   # 문제별 상세 결과
+            
             writing_q_text = "그래프 해석" 
 
+            # [1] 전체 만점 계산 및 객관식 채점
             for q in questions:
+                # 전체 만점 누적 계산 (문법+어휘+읽기+쓰기 모두 포함)
+                max_score += q['score']
+                
                 q_type = q.get('type')
+                
+                # 쓰기 문제는 채점 건너뛰고 텍스트만 저장
                 if q_type == '쓰기':
                     writing_q_text = q['question']
                     continue
@@ -245,14 +259,18 @@ def main():
                 user_choice = st.session_state.answers.get(q['id'])
                 is_correct = False
                 
+                # 정답 확인 로직
                 if user_choice and 'options' in q:
                     try:
                         if user_choice in q['options']:
                             choice_idx = q['options'].index(user_choice)
                             if choice_idx == q['answer']:
+                                # 정답인 경우
                                 point = q['score']
                                 score_obj += point
                                 is_correct = True
+                                
+                                # 유형별 점수 합산
                                 if q_type in scores:
                                     scores[q_type] += point
                     except:
@@ -274,7 +292,7 @@ def main():
                 "correction": ""
             }
 
-            if user_writing and "GEMINI_API_KEY" in st.secrets:
+            if user_writing:
                 try:
                     model = genai.GenerativeModel('gemini-pro')
                     prompt = f"""
@@ -305,6 +323,7 @@ def main():
                     }}
                     """
                     response = model.generate_content(prompt)
+                    
                     response_text = response.text.strip()
                     if response_text.startswith("```json"):
                         response_text = response_text.replace("```json", "").replace("```", "")
@@ -313,39 +332,50 @@ def main():
                     scores["쓰기"] = writing_analysis.get("score", 0)
                     
                 except Exception as e:
-                    # st.error(f"쓰기 채점 오류: {e}") # 사용자에게 에러 보여주지 않기 위해 주석 처리
-                    writing_analysis["feedback"] = f"AI 채점 중 오류가 발생했습니다. (잠시 후 다시 시도해주세요)"
+                    print(f"쓰기 채점 오류: {e}")
+                    writing_analysis["feedback"] = f"채점 중 오류가 발생했습니다: {e}"
 
             total_score = score_obj + scores["쓰기"]
             
             # [3] 데이터 저장
             duration = st.session_state.end_time - st.session_state.start_time
             
-            if db:
-                doc_data = {
-                    "name_enc": st.session_state.user_info['name'],
-                    "univ_enc": st.session_state.user_info['code'],
-                    "email": st.session_state.user_info['email'],
-                    "total_score": total_score,
-                    "score_grammar": scores["문법"],
-                    "score_vocab": scores["어휘"],
-                    "score_reading": scores["읽기"],
-                    "score_writing": scores["쓰기"],
-                    "details_obj": str(details),
-                    "writing_original": user_writing,
-                    "writing_analysis": writing_analysis,
-                    "duration_sec": int(duration),
-                    "timestamp": firestore.SERVER_TIMESTAMP
-                }
-                db.collection("korean_test_results").add(doc_data)
+            doc_data = {
+                "name_enc": st.session_state.user_info['name'],
+                "univ_enc": st.session_state.user_info['code'],
+                "email": st.session_state.user_info['email'],
+                "total_score": total_score,
+                "max_score": max_score, # 만점 정보도 저장
+                "score_grammar": scores["문법"],
+                "score_vocab": scores["어휘"],
+                "score_reading": scores["읽기"],
+                "score_writing": scores["쓰기"],
+                "details_obj": str(details),
+                "writing_original": user_writing,
+                "writing_analysis": writing_analysis,
+                "duration_sec": int(duration),
+                "timestamp": firestore.SERVER_TIMESTAMP
+            }
             
-            # 결과 화면 출력
+            db.collection("korean_test_results").add(doc_data)
+            
+            # --- 결과 화면 출력 ---
             st.success("🎉 채점이 완료되었습니다!")
             
+            # 1. 종합 점수 (동적 만점 반영 및 1.0 초과 방지)
             col1, col2 = st.columns(2)
-            col1.metric("총점", f"{total_score}점 / 80점")
-            col1.progress(total_score / 80)
             
+            # 만점이 0인 경우(오류 방지) 처리
+            safe_max_score = max_score if max_score > 0 else 100
+            progress_value = total_score / safe_max_score
+            
+            # 진행률바 값이 1.0을 넘지 않도록 안전장치
+            if progress_value > 1.0: progress_value = 1.0
+            
+            col1.metric("총점", f"{total_score}점 / {safe_max_score}점")
+            col1.progress(progress_value)
+            
+            # 2. 영역별 점수
             st.subheader("📊 영역별 점수")
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("문법", f"{scores['문법']}점")
@@ -353,20 +383,18 @@ def main():
             c3.metric("읽기", f"{scores['읽기']}점")
             c4.metric("쓰기", f"{scores['쓰기']}점")
             
+            # 3. 쓰기 상세 피드백
             st.markdown("---")
             st.subheader("📝 쓰기 AI 분석 결과")
             if user_writing:
                 wa = writing_analysis
-                # breakdown 키가 없는 경우 대비
-                bd = wa.get('breakdown', {"content": 0, "structure": 0, "grammar": 0})
-                st.write(f"**[세부 점수]** 내용: {bd.get('content')}/3, 구성: {bd.get('structure')}/3, 언어: {bd.get('grammar')}/2")
-                
-                st.info(f"**💡 피드백:**\n{wa.get('feedback', '')}")
+                st.write(f"**[세부 점수]** 내용: {wa['breakdown']['content']}/3, 구성: {wa['breakdown']['structure']}/3, 언어: {wa['breakdown']['grammar']}/2")
+                st.info(f"**💡 피드백:**\n{wa['feedback']}")
                 
                 with st.expander("원문 및 교정본 비교 보기"):
                     col_a, col_b = st.columns(2)
                     col_a.text_area("내 답안", user_writing, height=150, disabled=True)
-                    col_b.text_area("AI 교정본", wa.get('correction', ''), height=150, disabled=True)
+                    col_b.text_area("AI 교정본", wa['correction'], height=150, disabled=True)
             else:
                 st.warning("제출된 쓰기 답안이 없습니다.")
 
@@ -399,6 +427,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
