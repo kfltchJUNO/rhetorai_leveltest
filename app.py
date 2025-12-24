@@ -79,7 +79,7 @@ def load_problems():
     try:
         with open('problems.json', 'r', encoding='utf-8') as f:
             data = json.load(f)
-        return [data['SET_A'], data['SET_B'], data['SET_C']]
+        return [data['SET_A'], data['SET_B'], data['SET_C'],data['SET_D'],data['SET_E']]
     except FileNotFoundError:
         st.error("❌ 'problems.json' 파일을 찾을 수 없습니다.")
         return []
@@ -287,3 +287,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
