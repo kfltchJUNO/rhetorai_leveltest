@@ -174,14 +174,13 @@ def main():
         with st.form("test_form"):
             # 1. 객관식 문제 출력
             for idx, q in enumerate(obj_questions):
-                # 문제 유형과 질문 출력
+                # 문제 유형과 질문 출력 (st.markdown 유지)
                 st.markdown(f"**{idx+1}. [{q.get('type', '일반')}]** {q['question']}", unsafe_allow_html=True)
                 
-                # [수정됨] 지문(passage) 출력: st.info 대신 st.markdown 사용
+                # [수정됨] 지문(passage) 출력: 배경은 어둡게(#333), 글씨는 하얗게(#fff) 강제 설정
                 if 'passage' in q and q['passage']:
-                    # 회색 박스 안에 지문을 넣고 HTML 태그(<u>)가 먹히도록 설정
                     st.markdown(f"""
-                    <div style="background-color: #f0f2f6; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
+                    <div style="background-color: #333333; color: #ffffff; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
                         {q['passage']}
                     </div>
                     """, unsafe_allow_html=True)
@@ -201,10 +200,10 @@ def main():
             if writing_question:
                 st.markdown(f"**[쓰기]** {writing_question['question']}", unsafe_allow_html=True)
                 
-                # [수정됨] 쓰기 지문도 동일하게 처리
+                # [수정됨] 쓰기 지문도 동일하게 어두운 배경 + 흰 글씨 적용
                 if 'passage' in writing_question and writing_question['passage']:
                     st.markdown(f"""
-                    <div style="background-color: #f0f2f6; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
+                    <div style="background-color: #333333; color: #ffffff; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
                         {writing_question['passage']}
                     </div>
                     """, unsafe_allow_html=True)
@@ -403,4 +402,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
