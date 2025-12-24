@@ -149,9 +149,22 @@ def main():
         with st.form("test_form"):
             # 1. 객관식 문제 출력
             for idx, q in enumerate(obj_questions):
-                # [수정됨] st.markdown 사용 + unsafe_allow_html=True (밑줄 표시용)
+                # 문제 텍스트 출력 (밑줄 포함)
                 st.markdown(f"**{idx+1}. [{q.get('type', '일반')}]** {q['question']}", unsafe_allow_html=True)
                 
+                # [추가됨] 지문(passage)이 있으면 출력 (박스로 감싸서 보기 좋게)
+                if 'passage' in q and q['passage']:
+                    st.info(q['passage']) # 또는 st.text_area(..., disabled=True)
+
+                # [추가됨] 이미지가 있으면 출력
+                if 'image' in q and q['image']:
+                    # 이미지 경로가 실제 파일로 존재하는지 확인 (선택 사항이지만 안전함)
+                    if os.path.exists(q['image']):
+                        st.image(q['image'], caption=f"문제 {idx+1}번 자료")
+                    else:
+                        st.warning(f"이미지를 찾을 수 없습니다: {q['image']}")
+                
+                # 보기 출력
                 options = q.get('options', [])
                 choice = st.radio(f"{idx+1}번 답안 선택", options, key=f"q_{q['id']}", index=None)
                 st.session_state.answers[q['id']] = choice
@@ -159,15 +172,24 @@ def main():
             
             # 2. 쓰기 문제 출력
             if writing_question:
-                # [수정됨] 쓰기 문제도 밑줄 표시를 위해 markdown 사용
                 st.markdown(f"**[쓰기]** {writing_question['question']}", unsafe_allow_html=True)
                 
+                # [추가됨] 쓰기 문제 지문/자료 출력
+                if 'passage' in writing_question and writing_question['passage']:
+                     st.info(writing_question['passage'])
+
+                # [추가됨] 쓰기 문제 이미지 출력
+                if 'image' in writing_question and writing_question['image']:
+                    if os.path.exists(writing_question['image']):
+                        st.image(writing_question['image'], caption="쓰기 문제 자료")
+                
                 writing_answer = st.text_area("답안을 작성하세요 (200~300자)", height=200)
-                # [중요] 쓰기 답안을 세션에 저장
                 st.session_state.answers['writing'] = writing_answer
             else:
                 st.warning("쓰기 문제가 로드되지 않았습니다.")
                 st.session_state.answers['writing'] = ""
+            
+            # ... (이하 제출 버튼 코드는 동일)
             
             # 제출 버튼
             submitted = st.form_submit_button("제출 및 채점하기")
@@ -287,4 +309,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
