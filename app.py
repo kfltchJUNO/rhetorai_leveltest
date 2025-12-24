@@ -11,7 +11,7 @@ import os
 import math
 
 # --- [설정] 시험 제한 시간 (초 단위) --- 
-TEST_DURATION_SEC = 60 * 60  # 60분
+TEST_DURATION_SEC = 60 * 60  # 60분 
 
 # --- 0. CSS 스타일 적용 (UI 숨기기 + 밑줄 + 타이머 디자인) ---
 hide_streamlit_style = """
@@ -457,4 +457,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
