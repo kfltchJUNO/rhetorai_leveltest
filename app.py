@@ -38,13 +38,23 @@ EMAIL_DOMAINS = [
     "icloud.com", "outlook.com", "nate.com", "yahoo.com", "직접입력"
 ]
 
-# --- 0. CSS 스타일 적용 ---
+# --- 0. CSS 스타일 적용 (번역 방지 및 UI 숨기기) ---
 hide_streamlit_style = """
 <style>
+    /* 1. UI 숨기기 */
     .stAppDeployButton { display: none; }
     footer { visibility: hidden; }
     #MainMenu { visibility: hidden; }
     
+    /* 2. 번역 방지 및 드래그 방지 클래스 */
+    .prevent-copy {
+        -webkit-user-select: none; /* Safari */
+        -moz-user-select: none;    /* Firefox */
+        -ms-user-select: none;     /* IE10+/Edge */
+        user-select: none;         /* Standard */
+    }
+    
+    /* 3. HTML <u> 태그 (밑줄) 스타일 커스텀 */
     u {
         text-decoration: none;
         border-bottom: 2px solid red;
@@ -52,6 +62,7 @@ hide_streamlit_style = """
         font-weight: bold;
     }
 
+    /* 4. 좌측 하단 고정 타이머 디자인 */
     .fixed-timer {
         position: fixed;
         bottom: 20px;
@@ -128,12 +139,11 @@ def main():
     if 'start_time' not in st.session_state: st.session_state.start_time = None
     if 'end_time' not in st.session_state: st.session_state.end_time = None
     
-    # [문제 출제 로직] 100점 만점 구성
+    # [문제 출제 로직] 100점 만점 구성 + 그래프 필수 포함
     if 'shuffled_questions' not in st.session_state and ALL_QUESTIONS_POOL:
         grammar_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '문법']
         vocab_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '어휘']
         
-        # 읽기 (그래프/일반/3점 분리)
         reading_graph_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '읽기' and '그래프' in q['question']]
         reading_2pt_normal_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '읽기' and q['score'] == 2 and '그래프' not in q['question']]
         reading_3pt_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '읽기' and q['score'] == 3]
@@ -141,12 +151,10 @@ def main():
         writing_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '쓰기']
         
         try:
-            # 1. 문법 (2점 x 5 = 10점)
             sel_grammar = random.sample(grammar_pool, 5)
-            # 2. 어휘 (2점 x 5 = 10점)
             sel_vocab = random.sample(vocab_pool, 5)
             
-            # 3. 읽기 2점 (총 20문제 = 40점) -> 그래프 1개 필수
+            # 그래프 문제 1개 필수
             if reading_graph_pool:
                 sel_reading_graph = random.sample(reading_graph_pool, 1)
                 sel_reading_normal = random.sample(reading_2pt_normal_pool, 19)
@@ -154,21 +162,16 @@ def main():
             else:
                 sel_reading_2 = random.sample(reading_2pt_normal_pool, 20)
                 
-            # 4. 읽기 3점 (총 9문제 = 27점)
             sel_reading_3 = random.sample(reading_3pt_pool, 9)
-            
-            # 5. 쓰기 (13점 x 1 = 13점)
             sel_writing = random.sample(writing_pool, 1)
             
-            # 읽기 섞기
             sel_reading = sel_reading_2 + sel_reading_3
             random.shuffle(sel_reading)
             
-            # 최종 합산: 10 + 10 + 40 + 27 + 13 = 100점
             st.session_state.shuffled_questions = sel_grammar + sel_vocab + sel_reading + sel_writing
             
         except ValueError:
-            st.error("문제 데이터가 부족하여 세트를 구성할 수 없습니다. (데이터 풀 확인 필요)")
+            st.error("문제 데이터가 부족하여 세트를 구성할 수 없습니다.")
             st.session_state.shuffled_questions = []
 
     # --- 페이지 1: 로그인 ---
@@ -243,7 +246,7 @@ def main():
         * 본 시험의 제한 시간은 **{TEST_DURATION_SEC // 60}분**입니다.
         * 좌측 하단에 남은 시간이 표시됩니다.
         * **시간이 종료되면 작성 중인 답안이 자동으로 제출**됩니다.
-        * 중간에 브라우저를 닫거나 새로고침하면 답안이 초기화될 수 있습니다.
+        * **번역기 사용 금지:** 화면을 긁거나 복사할 수 없으며, 번역기 사용 시 불이익을 받을 수 있습니다.
         
         준비가 되셨으면 아래 버튼을 눌러 시작하세요.
         """)
@@ -256,6 +259,7 @@ def main():
 
     # --- 페이지 2: 시험 진행 ---
     elif st.session_state.page == 'test':
+        # 시간 계산
         elapsed_time = time.time() - st.session_state.start_time
         remaining_time = TEST_DURATION_SEC - elapsed_time
         
@@ -264,6 +268,7 @@ def main():
             st.session_state.page = 'scoring'
             st.rerun()
         
+        # [타이머 복구]
         st.components.v1.html(
             f"""
             <div id="timer-display" class="fixed-timer" style="
@@ -304,12 +309,20 @@ def main():
         writing_question_list = [q for q in questions if q.get('type') == '쓰기']
         writing_question = writing_question_list[0] if writing_question_list else None
 
+        # [번역 방지] 문제 출력 시 class="prevent-copy notranslate" 및 translate="no" 적용
         for idx, q in enumerate(obj_questions):
-            st.markdown(f"**{idx+1}. [{q.get('type', '일반')}]** {q['question']}", unsafe_allow_html=True)
+            # 질문 텍스트 보호
+            st.markdown(
+                f"""<div class="prevent-copy notranslate" translate="no">
+                <strong>{idx+1}. [{q.get('type', '일반')}]</strong> {q['question']}
+                </div>""", 
+                unsafe_allow_html=True
+            )
             
+            # 지문 보호
             if 'passage' in q and q['passage']:
                 st.markdown(f"""
-                <div style="background-color: #333333; color: #ffffff; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
+                <div class="prevent-copy notranslate" translate="no" style="background-color: #333333; color: #ffffff; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
                     {q['passage'].replace('\n', '<br>')}
                 </div>
                 """, unsafe_allow_html=True)
@@ -325,17 +338,23 @@ def main():
                 f"{idx+1}번 답안 선택", 
                 options, 
                 key=f"q_{q['id']}", 
-                index=options.index(current_ans) if current_ans in options else None
+                index=options.index(current_ans) if current_ans in options else None,
+                label_visibility="collapsed" # 라벨 중복 방지
             )
             st.session_state.answers[q['id']] = choice
             st.markdown("---")
         
         if writing_question:
-            st.markdown(f"**[쓰기]** {writing_question['question']}", unsafe_allow_html=True)
+            st.markdown(
+                f"""<div class="prevent-copy notranslate" translate="no">
+                <strong>[쓰기]</strong> {writing_question['question']}
+                </div>""", 
+                unsafe_allow_html=True
+            )
             
             if 'passage' in writing_question and writing_question['passage']:
                 st.markdown(f"""
-                <div style="background-color: #333333; color: #ffffff; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
+                <div class="prevent-copy notranslate" translate="no" style="background-color: #333333; color: #ffffff; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
                     {writing_question['passage'].replace('\n', '<br>')}
                 </div>
                 """, unsafe_allow_html=True)
@@ -364,12 +383,11 @@ def main():
     elif st.session_state.page == 'scoring':
         st.title("채점 결과")
         
-        # [중요] 스피너 안에서 계산만 하고, 결과 출력은 밖에서 함
         with st.spinner("AI가 채점 및 분석 중입니다... (약 10~20초 소요)"):
             
             questions = st.session_state.shuffled_questions
             scores = {"문법": 0, "어휘": 0, "읽기": 0, "쓰기": 0}
-            max_scores = {"문법": 0, "어휘": 0, "읽기": 0, "쓰기": 0} # 영역별 만점 계산용
+            max_scores = {"문법": 0, "어휘": 0, "읽기": 0, "쓰기": 0}
             
             score_obj = 0
             total_max_score = 0
@@ -381,7 +399,6 @@ def main():
                 total_max_score += q['score']
                 q_type = q.get('type')
                 
-                # 영역별 만점 누적
                 if q_type in max_scores:
                     max_scores[q_type] += q['score']
                 
@@ -476,7 +493,7 @@ def main():
             
             db.collection("korean_test_results").add(doc_data)
             
-        # --- 스피너 밖에서 결과 화면 출력 (로딩 문구 사라짐) ---
+        # --- 스피너 밖에서 결과 화면 출력 ---
         st.success("🎉 채점이 완료되었습니다!")
         
         col1, col2 = st.columns(2)
@@ -489,7 +506,6 @@ def main():
         
         st.subheader("📊 영역별 점수")
         c1, c2, c3, c4 = st.columns(4)
-        # [수정됨] 획득 점수 / 만점 형태로 표시
         c1.metric("문법", f"{scores['문법']} / {max_scores['문법']}")
         c2.metric("어휘", f"{scores['어휘']} / {max_scores['어휘']}")
         c3.metric("읽기", f"{scores['읽기']} / {max_scores['읽기']}")
