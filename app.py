@@ -13,7 +13,7 @@ import math
 # --- [설정] 시험 제한 시간 (50분) ---
 TEST_DURATION_SEC = 50 * 60 
 
-# --- [데이터] 한국 대학교 리스트 (가나다순 정렬) ---
+# --- [데이터] 한국 대학교 리스트 ---
 KOREAN_UNIVERSITIES = sorted([
     "가천대학교", "가톨릭대학교", "강원대학교", "건국대학교", "경기대학교", "경남대학교", "경북대학교", "경상국립대학교", 
     "경성대학교", "경희대학교", "계명대학교", "고려대학교", "공주대학교", "광운대학교", "국민대학교", "군산대학교", 
@@ -128,13 +128,12 @@ def main():
     if 'start_time' not in st.session_state: st.session_state.start_time = None
     if 'end_time' not in st.session_state: st.session_state.end_time = None
     
-    # [수정됨] 문제 랜덤 출제 (그래프 문제 필수 포함 + 100점 만점)
+    # [문제 출제 로직] 100점 만점 구성
     if 'shuffled_questions' not in st.session_state and ALL_QUESTIONS_POOL:
-        # 1. 풀 분류
         grammar_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '문법']
         vocab_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '어휘']
         
-        # 읽기: 2점(일반/그래프 분리) / 3점
+        # 읽기 (그래프/일반/3점 분리)
         reading_graph_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '읽기' and '그래프' in q['question']]
         reading_2pt_normal_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '읽기' and q['score'] == 2 and '그래프' not in q['question']]
         reading_3pt_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '읽기' and q['score'] == 3]
@@ -142,32 +141,30 @@ def main():
         writing_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '쓰기']
         
         try:
-            # 2. 문제 선택
-            # 문법 5개 (10점)
+            # 1. 문법 (2점 x 5 = 10점)
             sel_grammar = random.sample(grammar_pool, 5)
-            # 어휘 5개 (10점)
+            # 2. 어휘 (2점 x 5 = 10점)
             sel_vocab = random.sample(vocab_pool, 5)
             
-            # 읽기 2점 20개 (40점) -> 그래프 1개 필수 포함
+            # 3. 읽기 2점 (총 20문제 = 40점) -> 그래프 1개 필수
             if reading_graph_pool:
                 sel_reading_graph = random.sample(reading_graph_pool, 1)
                 sel_reading_normal = random.sample(reading_2pt_normal_pool, 19)
                 sel_reading_2 = sel_reading_graph + sel_reading_normal
             else:
-                # 만약 그래프 문제가 없다면 일반으로 채움 (예외처리)
                 sel_reading_2 = random.sample(reading_2pt_normal_pool, 20)
                 
-            # 읽기 3점 9개 (27점)
+            # 4. 읽기 3점 (총 9문제 = 27점)
             sel_reading_3 = random.sample(reading_3pt_pool, 9)
             
-            # 쓰기 1개 (13점)
+            # 5. 쓰기 (13점 x 1 = 13점)
             sel_writing = random.sample(writing_pool, 1)
             
-            # 3. 읽기 문제 섞기 (그래프 문제가 항상 같은 위치에 나오지 않도록)
+            # 읽기 섞기
             sel_reading = sel_reading_2 + sel_reading_3
             random.shuffle(sel_reading)
             
-            # 최종 문제 세트 구성
+            # 최종 합산: 10 + 10 + 40 + 27 + 13 = 100점
             st.session_state.shuffled_questions = sel_grammar + sel_vocab + sel_reading + sel_writing
             
         except ValueError:
@@ -366,19 +363,27 @@ def main():
     # --- 페이지 3: 채점 및 결과 ---
     elif st.session_state.page == 'scoring':
         st.title("채점 결과")
+        
+        # [중요] 스피너 안에서 계산만 하고, 결과 출력은 밖에서 함
         with st.spinner("AI가 채점 및 분석 중입니다... (약 10~20초 소요)"):
             
             questions = st.session_state.shuffled_questions
             scores = {"문법": 0, "어휘": 0, "읽기": 0, "쓰기": 0}
+            max_scores = {"문법": 0, "어휘": 0, "읽기": 0, "쓰기": 0} # 영역별 만점 계산용
             
             score_obj = 0
-            max_score = 0
+            total_max_score = 0
             details = {}
             writing_q_text = "그래프 해석" 
 
+            # [1] 객관식 채점
             for q in questions:
-                max_score += q['score']
+                total_max_score += q['score']
                 q_type = q.get('type')
+                
+                # 영역별 만점 누적
+                if q_type in max_scores:
+                    max_scores[q_type] += q['score']
                 
                 if q_type == '쓰기':
                     writing_q_text = q['question']
@@ -407,6 +412,7 @@ def main():
                     "score_earned": q['score'] if is_correct else 0
                 }
 
+            # [2] 쓰기 채점
             user_writing = st.session_state.answers.get('writing', '')
             writing_analysis = {
                 "score": 0,
@@ -445,6 +451,7 @@ def main():
 
             total_score = score_obj + scores["쓰기"]
             
+            # [3] 데이터 저장
             if st.session_state.end_time and st.session_state.start_time:
                 duration = st.session_state.end_time - st.session_state.start_time
             else:
@@ -455,7 +462,7 @@ def main():
                 "univ_enc": st.session_state.user_info['code'],
                 "email": st.session_state.user_info['email'],
                 "total_score": total_score,
-                "max_score": max_score,
+                "max_score": total_max_score,
                 "score_grammar": scores["문법"],
                 "score_vocab": scores["어휘"],
                 "score_reading": scores["읽기"],
@@ -469,38 +476,40 @@ def main():
             
             db.collection("korean_test_results").add(doc_data)
             
-            st.success("🎉 시험이 종료되었습니다!")
-            
-            col1, col2 = st.columns(2)
-            safe_max_score = max_score if max_score > 0 else 100
-            progress_value = total_score / safe_max_score
-            if progress_value > 1.0: progress_value = 1.0
-            
-            col1.metric("총점", f"{total_score}점 / {safe_max_score}점")
-            col1.progress(progress_value)
-            
-            st.subheader("📊 영역별 점수")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("문법", f"{scores['문법']}점")
-            c2.metric("어휘", f"{scores['어휘']}점")
-            c3.metric("읽기", f"{scores['읽기']}점")
-            c4.metric("쓰기", f"{scores['쓰기']}점")
-            
-            st.markdown("---")
-            st.subheader("📝 쓰기 AI 분석 결과")
-            if user_writing:
-                wa = writing_analysis
-                st.write(f"**[세부 점수]** 내용: {wa['breakdown']['content']}/5, 구성: {wa['breakdown']['structure']}/4, 언어: {wa['breakdown']['grammar']}/4")
-                st.info(f"**💡 피드백:**\n{wa['feedback']}")
-                with st.expander("원문 및 교정본 비교 보기"):
-                    c_a, c_b = st.columns(2)
-                    c_a.text_area("내 답안", user_writing, height=150, disabled=True)
-                    c_b.text_area("AI 교정본", wa['correction'], height=150, disabled=True)
-            else:
-                st.warning("제출된 쓰기 답안이 없습니다.")
+        # --- 스피너 밖에서 결과 화면 출력 (로딩 문구 사라짐) ---
+        st.success("🎉 채점이 완료되었습니다!")
+        
+        col1, col2 = st.columns(2)
+        safe_max_score = total_max_score if total_max_score > 0 else 100
+        progress_value = total_score / safe_max_score
+        if progress_value > 1.0: progress_value = 1.0
+        
+        col1.metric("총점", f"{total_score}점 / {safe_max_score}점")
+        col1.progress(progress_value)
+        
+        st.subheader("📊 영역별 점수")
+        c1, c2, c3, c4 = st.columns(4)
+        # [수정됨] 획득 점수 / 만점 형태로 표시
+        c1.metric("문법", f"{scores['문법']} / {max_scores['문법']}")
+        c2.metric("어휘", f"{scores['어휘']} / {max_scores['어휘']}")
+        c3.metric("읽기", f"{scores['읽기']} / {max_scores['읽기']}")
+        c4.metric("쓰기", f"{scores['쓰기']} / {max_scores['쓰기']}")
+        
+        st.markdown("---")
+        st.subheader("📝 쓰기 AI 분석 결과")
+        if user_writing:
+            wa = writing_analysis
+            st.write(f"**[세부 점수]** 내용: {wa['breakdown']['content']}/5, 구성: {wa['breakdown']['structure']}/4, 언어: {wa['breakdown']['grammar']}/4")
+            st.info(f"**💡 피드백:**\n{wa['feedback']}")
+            with st.expander("원문 및 교정본 비교 보기"):
+                c_a, c_b = st.columns(2)
+                c_a.text_area("내 답안", user_writing, height=150, disabled=True)
+                c_b.text_area("AI 교정본", wa['correction'], height=150, disabled=True)
+        else:
+            st.warning("제출된 쓰기 답안이 없습니다.")
 
-            st.info("수고하셨습니다. 창을 닫으셔도 됩니다.")
-            st.stop()
+        st.info("수고하셨습니다. 창을 닫으셔도 됩니다.")
+        st.stop()
 
     # --- 관리자 메뉴 ---
     st.sidebar.markdown("---")
