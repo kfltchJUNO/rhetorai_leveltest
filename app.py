@@ -11,7 +11,7 @@ import os
 import math
 
 # --- [설정] 시험 제한 시간 (50분) ---
-TEST_DURATION_SEC = 50 * 60 
+TEST_DURATION_SEC = 40 * 60 
 
 # --- [데이터] 한국 대학교 리스트 ---
 KOREAN_UNIVERSITIES = sorted([
@@ -38,23 +38,20 @@ EMAIL_DOMAINS = [
     "icloud.com", "outlook.com", "nate.com", "yahoo.com", "직접입력"
 ]
 
-# --- 0. CSS 스타일 적용 (번역 방지 및 UI 숨기기) ---
+# --- 0. CSS 스타일 적용 ---
 hide_streamlit_style = """
 <style>
-    /* 1. UI 숨기기 */
     .stAppDeployButton { display: none; }
     footer { visibility: hidden; }
     #MainMenu { visibility: hidden; }
     
-    /* 2. 번역 방지 및 드래그 방지 클래스 */
     .prevent-copy {
-        -webkit-user-select: none; /* Safari */
-        -moz-user-select: none;    /* Firefox */
-        -ms-user-select: none;     /* IE10+/Edge */
-        user-select: none;         /* Standard */
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
     }
     
-    /* 3. HTML <u> 태그 (밑줄) 스타일 커스텀 */
     u {
         text-decoration: none;
         border-bottom: 2px solid red;
@@ -62,7 +59,6 @@ hide_streamlit_style = """
         font-weight: bold;
     }
 
-    /* 4. 좌측 하단 고정 타이머 디자인 */
     .fixed-timer {
         position: fixed;
         bottom: 20px;
@@ -130,31 +126,120 @@ def load_all_problems():
 
 ALL_QUESTIONS_POOL = load_all_problems()
 
+# --- [시스템 상태 관리] Firestore를 이용한 전역 설정 ---
+def get_system_status():
+    """시험 활성화 여부를 DB에서 가져옴"""
+    try:
+        doc_ref = db.collection('config').document('settings')
+        doc = doc_ref.get()
+        if doc.exists:
+            return doc.to_dict().get('is_active', True) # 기본값 True
+        else:
+            # 설정 문서가 없으면 생성하고 True로 설정
+            doc_ref.set({'is_active': True})
+            return True
+    except Exception as e:
+        st.error(f"설정 로드 오류: {e}")
+        return True
+
+def update_system_status(status):
+    """시험 활성화 여부를 DB에 저장"""
+    try:
+        db.collection('config').document('settings').set({'is_active': status}, merge=True)
+    except Exception as e:
+        st.error(f"설정 저장 오류: {e}")
+
 # --- 3. 메인 앱 로직 ---
 def main():
     st.title("🇰🇷 한국어 실력 진단 평가 (연구용)")
     
+    # 세션 상태 초기화
     if 'page' not in st.session_state: st.session_state.page = 'login'
     if 'answers' not in st.session_state: st.session_state.answers = {}
     if 'start_time' not in st.session_state: st.session_state.start_time = None
     if 'end_time' not in st.session_state: st.session_state.end_time = None
+    if 'is_admin' not in st.session_state: st.session_state.is_admin = False # 관리자 여부
+
+    # --- [관리자 사이드바] ---
+    st.sidebar.markdown("### 🔧 관리자 모드")
     
-    # [문제 출제 로직] 100점 만점 구성 + 그래프 필수 포함
+    # 관리자 로그인 전
+    if not st.session_state.is_admin:
+        admin_pwd = st.sidebar.text_input("관리자 암호", type="password")
+        if st.sidebar.button("로그인"):
+            if admin_pwd == "qlalf1": # 요청하신 비밀번호
+                st.session_state.is_admin = True
+                st.rerun()
+            else:
+                st.sidebar.error("암호가 일치하지 않습니다.")
+    
+    # 관리자 로그인 후
+    if st.session_state.is_admin:
+        st.sidebar.success("관리자 로그인됨")
+        
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("시스템 제어")
+        
+        # 시스템 ON/OFF 스위치
+        current_status = get_system_status()
+        new_status = st.sidebar.toggle("시험 응시 허용", value=current_status)
+        
+        # 상태가 변경되면 DB 업데이트
+        if new_status != current_status:
+            update_system_status(new_status)
+            st.rerun()
+            
+        status_text = "🟢 응시 가능" if new_status else "🔴 응시 불가 (점검중)"
+        st.sidebar.caption(f"현재 상태: {status_text}")
+
+        st.sidebar.markdown("---")
+        if st.sidebar.button("로그아웃"):
+            st.session_state.is_admin = False
+            st.rerun()
+
+        # 데이터 다운로드 기능 (관리자 전용)
+        with st.sidebar.expander("데이터 다운로드"):
+            if st.button("결과 CSV 다운로드"):
+                docs = db.collection("korean_test_results").stream()
+                data = []
+                for doc in docs:
+                    d = doc.to_dict()
+                    if 'timestamp' in d and d['timestamp']:
+                        d['timestamp'] = d['timestamp'].isoformat()
+                    data.append(d)
+                if data:
+                    df = pd.DataFrame(data)
+                    csv = df.to_csv(index=False).encode('utf-8-sig')
+                    st.download_button("CSV 파일 받기", csv, "results.csv", "text/csv")
+                else:
+                    st.write("데이터가 없습니다.")
+
+    # --- [시스템 상태 확인] ---
+    is_system_active = get_system_status()
+    
+    # 시험이 닫혀있고 관리자가 아닌 경우 -> 차단
+    if not is_system_active and not st.session_state.is_admin:
+        st.error("⛔ 현재 시험 응시가 불가능합니다.")
+        st.info("관리자가 시험 기능을 비활성화했습니다. 시험 시간이 아니거나 시스템 점검 중일 수 있습니다.")
+        st.stop() # 이후 코드 실행 중단
+
+    # 시험이 닫혀있지만 관리자인 경우 -> 테스트 모드 알림
+    if not is_system_active and st.session_state.is_admin:
+        st.warning("🔧 현재 [관리자 테스트 모드]입니다. 일반 사용자는 접속할 수 없습니다.")
+
+    # --- 문제 출제 로직 (100점 만점) ---
     if 'shuffled_questions' not in st.session_state and ALL_QUESTIONS_POOL:
         grammar_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '문법']
         vocab_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '어휘']
-        
         reading_graph_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '읽기' and '그래프' in q['question']]
         reading_2pt_normal_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '읽기' and q['score'] == 2 and '그래프' not in q['question']]
         reading_3pt_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '읽기' and q['score'] == 3]
-        
         writing_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '쓰기']
         
         try:
             sel_grammar = random.sample(grammar_pool, 5)
             sel_vocab = random.sample(vocab_pool, 5)
             
-            # 그래프 문제 1개 필수
             if reading_graph_pool:
                 sel_reading_graph = random.sample(reading_graph_pool, 1)
                 sel_reading_normal = random.sample(reading_2pt_normal_pool, 19)
@@ -171,7 +256,7 @@ def main():
             st.session_state.shuffled_questions = sel_grammar + sel_vocab + sel_reading + sel_writing
             
         except ValueError:
-            st.error("문제 데이터가 부족하여 세트를 구성할 수 없습니다.")
+            st.error("문제 데이터 부족 (데이터 풀 확인 필요)")
             st.session_state.shuffled_questions = []
 
     # --- 페이지 1: 로그인 ---
@@ -243,7 +328,7 @@ def main():
         st.warning("⚠️ 주의사항을 확인해주세요")
         st.markdown(f"""
         ### ⏳ 제한 시간 안내
-        * 본 시험의 제한 시간은 **{TEST_DURATION_SEC // 60}분**입니다.
+        * 본 시험의 제한 시간은 **{TEST_DURATION_SEC // 40}분**입니다.
         * 좌측 하단에 남은 시간이 표시됩니다.
         * **시간이 종료되면 작성 중인 답안이 자동으로 제출**됩니다.
         * **번역기 사용 금지:** 화면을 긁거나 복사할 수 없으며, 번역기 사용 시 불이익을 받을 수 있습니다.
@@ -259,7 +344,6 @@ def main():
 
     # --- 페이지 2: 시험 진행 ---
     elif st.session_state.page == 'test':
-        # 시간 계산
         elapsed_time = time.time() - st.session_state.start_time
         remaining_time = TEST_DURATION_SEC - elapsed_time
         
@@ -268,7 +352,6 @@ def main():
             st.session_state.page = 'scoring'
             st.rerun()
         
-        # [타이머 복구]
         st.components.v1.html(
             f"""
             <div id="timer-display" class="fixed-timer" style="
@@ -309,9 +392,7 @@ def main():
         writing_question_list = [q for q in questions if q.get('type') == '쓰기']
         writing_question = writing_question_list[0] if writing_question_list else None
 
-        # [번역 방지] 문제 출력 시 class="prevent-copy notranslate" 및 translate="no" 적용
         for idx, q in enumerate(obj_questions):
-            # 질문 텍스트 보호
             st.markdown(
                 f"""<div class="prevent-copy notranslate" translate="no">
                 <strong>{idx+1}. [{q.get('type', '일반')}]</strong> {q['question']}
@@ -319,7 +400,6 @@ def main():
                 unsafe_allow_html=True
             )
             
-            # 지문 보호
             if 'passage' in q and q['passage']:
                 st.markdown(f"""
                 <div class="prevent-copy notranslate" translate="no" style="background-color: #333333; color: #ffffff; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
@@ -339,7 +419,7 @@ def main():
                 options, 
                 key=f"q_{q['id']}", 
                 index=options.index(current_ans) if current_ans in options else None,
-                label_visibility="collapsed" # 라벨 중복 방지
+                label_visibility="collapsed"
             )
             st.session_state.answers[q['id']] = choice
             st.markdown("---")
@@ -394,7 +474,6 @@ def main():
             details = {}
             writing_q_text = "그래프 해석" 
 
-            # [1] 객관식 채점
             for q in questions:
                 total_max_score += q['score']
                 q_type = q.get('type')
@@ -429,7 +508,6 @@ def main():
                     "score_earned": q['score'] if is_correct else 0
                 }
 
-            # [2] 쓰기 채점
             user_writing = st.session_state.answers.get('writing', '')
             writing_analysis = {
                 "score": 0,
@@ -468,7 +546,6 @@ def main():
 
             total_score = score_obj + scores["쓰기"]
             
-            # [3] 데이터 저장
             if st.session_state.end_time and st.session_state.start_time:
                 duration = st.session_state.end_time - st.session_state.start_time
             else:
@@ -493,7 +570,6 @@ def main():
             
             db.collection("korean_test_results").add(doc_data)
             
-        # --- 스피너 밖에서 결과 화면 출력 ---
         st.success("🎉 채점이 완료되었습니다!")
         
         col1, col2 = st.columns(2)
@@ -526,26 +602,6 @@ def main():
 
         st.info("수고하셨습니다. 창을 닫으셔도 됩니다.")
         st.stop()
-
-    # --- 관리자 메뉴 ---
-    st.sidebar.markdown("---")
-    with st.sidebar.expander("관리자 메뉴"):
-        admin_pwd = st.text_input("관리자 암호", type="password")
-        if admin_pwd == st.secrets["ADMIN_PASSWORD"]:
-            if st.button("데이터 다운로드 (CSV)"):
-                docs = db.collection("korean_test_results").stream()
-                data = []
-                for doc in docs:
-                    d = doc.to_dict()
-                    if 'timestamp' in d and d['timestamp']:
-                        d['timestamp'] = d['timestamp'].isoformat()
-                    data.append(d)
-                if data:
-                    df = pd.DataFrame(data)
-                    csv = df.to_csv(index=False).encode('utf-8-sig')
-                    st.download_button("CSV 다운로드", csv, "results.csv", "text/csv")
-                else:
-                    st.write("데이터가 없습니다.")
 
 if __name__ == "__main__":
     main()
