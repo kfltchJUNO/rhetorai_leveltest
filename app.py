@@ -174,23 +174,20 @@ def main():
         with st.form("test_form"):
             # 1. 객관식 문제 출력
             for idx, q in enumerate(obj_questions):
-                # 문제 유형과 질문 출력 (st.markdown 유지)
                 st.markdown(f"**{idx+1}. [{q.get('type', '일반')}]** {q['question']}", unsafe_allow_html=True)
                 
-                # [수정됨] 지문(passage) 출력: 배경은 어둡게(#333), 글씨는 하얗게(#fff) 강제 설정
+                # [수정됨] .replace('\n', '<br>')을 추가하여 엔터 효과 적용
                 if 'passage' in q and q['passage']:
                     st.markdown(f"""
                     <div style="background-color: #333333; color: #ffffff; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
-                        {q['passage']}
+                        {q['passage'].replace('\n', '<br>')}
                     </div>
                     """, unsafe_allow_html=True)
 
-                # 이미지 출력
                 if 'image' in q and q['image']:
                     if os.path.exists(q['image']):
                         st.image(q['image'])
                 
-                # 보기 출력
                 options = q.get('options', [])
                 choice = st.radio(f"{idx+1}번 답안 선택", options, key=f"q_{q['id']}", index=None)
                 st.session_state.answers[q['id']] = choice
@@ -200,11 +197,11 @@ def main():
             if writing_question:
                 st.markdown(f"**[쓰기]** {writing_question['question']}", unsafe_allow_html=True)
                 
-                # [수정됨] 쓰기 지문도 동일하게 어두운 배경 + 흰 글씨 적용
+                # [수정됨] 쓰기 지문도 동일하게 줄바꿈 처리 적용
                 if 'passage' in writing_question and writing_question['passage']:
                     st.markdown(f"""
                     <div style="background-color: #333333; color: #ffffff; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
-                        {writing_question['passage']}
+                        {writing_question['passage'].replace('\n', '<br>')}
                     </div>
                     """, unsafe_allow_html=True)
 
@@ -402,5 +399,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
