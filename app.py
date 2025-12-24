@@ -10,8 +10,33 @@ import json
 import os
 import math
 
-# --- [설정] 시험 제한 시간 (50분으로 수정됨) ---
+# --- [설정] 시험 제한 시간 (50분) ---
 TEST_DURATION_SEC = 50 * 60 
+
+# --- [데이터] 한국 대학교 리스트 (가나다순 정렬) ---
+KOREAN_UNIVERSITIES = sorted([
+    "가천대학교", "가톨릭대학교", "강원대학교", "건국대학교", "경기대학교", "경남대학교", "경북대학교", "경상국립대학교", 
+    "경성대학교", "경희대학교", "계명대학교", "고려대학교", "공주대학교", "광운대학교", "국민대학교", "군산대학교", 
+    "금오공과대학교", "단국대학교", "대구대학교", "대구가톨릭대학교", "대전대학교", "대진대학교", "덕성여자대학교", 
+    "동국대학교", "동덕여자대학교", "동아대학교", "동의대학교", "명지대학교", "목원대학교", "목포대학교", "목포해양대학교", 
+    "배재대학교", "부경대학교", "부산대학교", "부산외국어대학교", "삼육대학교", "상명대학교", "상지대학교", "서강대학교", 
+    "서경대학교", "서울과학기술대학교", "서울교육대학교", "서울대학교", "서울시립대학교", "서울여자대학교", "서원대학교", 
+    "선문대학교", "성결대학교", "성균관대학교", "성신여자대학교", "세종대학교", "세한대학교", "수원대학교", "숙명여자대학교", 
+    "순천향대학교", "숭실대학교", "신라대학교", "아주대학교", "안동대학교", "안양대학교", "연세대학교", "영남대학교", 
+    "용인대학교", "우석대학교", "울산대학교", "원광대학교", "이화여자대학교", "인제대학교", "인천대학교", "인하대학교", 
+    "전남대학교", "전북대학교", "전주대학교", "제주대학교", "조선대학교", "중부대학교", "중앙대학교", "창원대학교", 
+    "청주대학교", "충남대학교", "충북대학교", "평택대학교", "포항공과대학교(POSTECH)", "한경대학교", "한국과학기술원(KAIST)", 
+    "한국교원대학교", "한국교통대학교", "한국기술교육대학교", "한국성서대학교", "한국예술종합학교", "한국외국어대학교", 
+    "한국체육대학교", "한국항공대학교", "한국해양대학교", "한남대학교", "한동대학교", "한림대학교", "한밭대학교", 
+    "한서대학교", "한성대학교", "한신대학교", "한양대학교", "한양대학교(ERICA)", "협성대학교", "호남대학교", 
+    "호서대학교", "홍익대학교", "기타(직접입력)"
+])
+
+# --- [데이터] 이메일 도메인 리스트 ---
+EMAIL_DOMAINS = [
+    "naver.com", "gmail.com", "daum.net", "hanmail.net", "kakao.com", 
+    "icloud.com", "outlook.com", "nate.com", "yahoo.com", "직접입력"
+]
 
 # --- 0. CSS 스타일 적용 ---
 hide_streamlit_style = """
@@ -103,57 +128,101 @@ def main():
     if 'start_time' not in st.session_state: st.session_state.start_time = None
     if 'end_time' not in st.session_state: st.session_state.end_time = None
     
-    # [수정됨] 문제 랜덤 출제 (100점 만점 고정 로직)
+    # 문제 랜덤 출제 (100점 만점 고정 로직)
     if 'shuffled_questions' not in st.session_state and ALL_QUESTIONS_POOL:
-        # 풀 분류
         grammar_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '문법']
         vocab_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '어휘']
-        # 읽기는 점수별로 분리 (2점짜리와 3점짜리)
         reading_2pt_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '읽기' and q['score'] == 2]
         reading_3pt_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '읽기' and q['score'] == 3]
         writing_pool = [q for q in ALL_QUESTIONS_POOL if q['type'] == '쓰기']
         
         try:
-            # 100점 만점 구성:
-            # 문법(2점x5=10) + 어휘(2점x5=10) + 읽기2점(20개=40) + 읽기3점(9개=27) + 쓰기(13점x1=13) = 100점
-            
             sel_grammar = random.sample(grammar_pool, 5)
             sel_vocab = random.sample(vocab_pool, 5)
             sel_reading_2 = random.sample(reading_2pt_pool, 20)
             sel_reading_3 = random.sample(reading_3pt_pool, 9)
             sel_writing = random.sample(writing_pool, 1)
             
-            # 읽기 문제 섞기
             sel_reading = sel_reading_2 + sel_reading_3
             random.shuffle(sel_reading)
             
             st.session_state.shuffled_questions = sel_grammar + sel_vocab + sel_reading + sel_writing
             
         except ValueError:
-            st.error("문제 데이터가 부족하여 100점 세트를 구성할 수 없습니다. (데이터 풀 확인 필요)")
+            st.error("문제 데이터 부족 (데이터 풀 확인 필요)")
             st.session_state.shuffled_questions = []
 
-    # --- 페이지 1: 로그인 ---
+    # --- 페이지 1: 로그인 (대폭 수정됨) ---
     if st.session_state.page == 'login':
         st.info("이 테스트는 연구 목적으로 진행됩니다. 개인정보는 암호화되어 관리됩니다.")
-        with st.form("login_form"):
-            name = st.text_input("이름")
-            univ = st.text_input("소속 대학교 (예: 한국대학교)")
-            email = st.text_input("이메일 (Gmail 권장)")
-            submitted = st.form_submit_button("다음 단계로")
-            
-            if submitted:
-                if name and univ and email:
-                    st.session_state.user_info = {
-                        "name": name,
-                        "univ": univ,
-                        "email": email,
-                        "code": make_code(univ, name)
-                    }
-                    st.session_state.page = 'warning'
-                    st.rerun()
-                else:
-                    st.warning("모든 정보를 입력해주세요.")
+        
+        # [주의] st.form을 제거하여 상호작용(Selectbox 선택 등)이 즉시 반영되도록 함
+        st.subheader("📝 수험자 정보 입력")
+        
+        # 1. 이름 입력
+        name = st.text_input("이름", placeholder="본명을 입력해주세요")
+        
+        # 2. 대학교 선택 (검색 가능)
+        univ_selection = st.selectbox(
+            "소속 대학교", 
+            KOREAN_UNIVERSITIES, 
+            index=None, 
+            placeholder="학교명을 검색하거나 선택하세요 (예: 단국대학교)"
+        )
+        
+        final_univ_name = univ_selection
+        if univ_selection == "기타(직접입력)":
+            final_univ_name = st.text_input("대학교명 직접 입력")
+
+        # 3. 이메일 입력 (ID + 도메인 분리)
+        st.markdown("**이메일**")
+        col_email_1, col_email_2, col_email_3 = st.columns([2, 0.2, 2])
+        
+        with col_email_1:
+            email_id = st.text_input("이메일 ID", placeholder="example", label_visibility="collapsed")
+        with col_email_2:
+            st.markdown("<h4 style='text-align: center; margin-top: 5px;'>@</h4>", unsafe_allow_html=True)
+        with col_email_3:
+            email_domain_select = st.selectbox(
+                "도메인 선택", 
+                EMAIL_DOMAINS, 
+                index=None, 
+                placeholder="도메인 선택", 
+                label_visibility="collapsed"
+            )
+        
+        # 도메인 직접 입력 처리
+        final_domain = email_domain_select
+        if email_domain_select == "직접입력":
+            final_domain = st.text_input("도메인 직접 입력 (예: school.ac.kr)", placeholder="school.ac.kr")
+
+        st.markdown("---")
+        
+        # 제출 버튼 및 유효성 검사
+        if st.button("다음 단계로", type="primary"):
+            # 검증 로직
+            if not name:
+                st.warning("이름을 입력해주세요.")
+            elif not final_univ_name:
+                st.warning("소속 대학교를 선택하거나 입력해주세요.")
+            elif not email_id:
+                st.warning("이메일 ID를 입력해주세요.")
+            elif not final_domain:
+                st.warning("이메일 도메인을 선택해주세요.")
+            elif "@" in email_id:
+                st.warning("이메일 ID 칸에는 @ 기호를 넣지 마세요.")
+            else:
+                # 모든 정보가 유효할 때만 진행
+                full_email = f"{email_id}@{final_domain}"
+                
+                st.session_state.user_info = {
+                    "name": name,
+                    "univ": final_univ_name,
+                    "email": full_email,
+                    "code": make_code(final_univ_name, name)
+                }
+                st.session_state.page = 'warning'
+                st.rerun()
 
     # --- 페이지 1.5: 시험 시작 전 경고 ---
     elif st.session_state.page == 'warning':
@@ -184,7 +253,6 @@ def main():
             st.session_state.page = 'scoring'
             st.rerun()
         
-        # [수정됨] 자바스크립트 구문 오류 수정 (중괄호 이스케이프 {{ }})
         st.components.v1.html(
             f"""
             <div id="timer-display" class="fixed-timer" style="
